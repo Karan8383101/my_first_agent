@@ -1,97 +1,106 @@
+import argparse
 import json
-import os
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
+from typing import Tuple
 
-API_BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+def get_coordinates(city: str):
+    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1"
+    data = json.loads(urlopen(geo_url).read().decode())
+
+    if "results" not in data:
+        raise ValueError("City not found")
+
+    result = data["results"][0]
+    return result["latitude"], result["longitude"], result["name"]
 
 
-def build_query_url(city: str, api_key: str, units: str = "metric") -> str:
+def fetch_weather(lat, lon):
     params = {
-        "q": city,
-        "appid": api_key,
-        "units": units,
+        "latitude": lat,
+        "longitude": lon,
+        "current_weather": True
     }
-    return f"{API_BASE_URL}?{urlencode(params)}"
+
+    url = "https://api.open-meteo.com/v1/forecast?" + urlencode(params)
+    data = json.loads(urlopen(url).read().decode())
+
+    return data["current_weather"]
 
 
-def fetch_weather(city: str, api_key: str, units: str = "metric") -> dict:
-    url = build_query_url(city, api_key, units)
-    request = Request(url, headers={"User-Agent": "WeatherAgent/1.0"})
-    try:
-        with urlopen(request, timeout=10) as response:
-            data = response.read().decode("utf-8")
-            return json.loads(data)
-    except HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(
-            f"Weather API HTTP error {exc.code}: {exc.reason}\n{error_body}"
-        )
-    except URLError as exc:
-        raise RuntimeError(f"Network error: {exc.reason}")
+def c_to_f(c: float) -> float:
+    return c * 9.0 / 5.0 + 32.0
 
 
-def format_weather(data: dict, units: str = "metric") -> str:
-    if data.get("cod") != 200:
-        message = data.get("message", "Unknown error")
-        raise ValueError(f"API error: {message}")
+def kmh_to_mph(kmh: float) -> float:
+    return kmh * 0.621371
 
-    weather = data["weather"][0]
-    details = data["main"]
-    wind = data.get("wind", {})
-    unit_temp = "°C" if units == "metric" else "°F"
-    unit_speed = "m/s" if units == "metric" else "mph"
 
+def format_weather_output(name: str, weather: dict, units: str = "metric", pretty: bool = False) -> str:
+    temp = weather["temperature"]
+    wind = weather["windspeed"]
+
+    if units == "imperial":
+        temp = c_to_f(temp)
+        wind = kmh_to_mph(wind)
+
+    temp_unit = "C" if units == "metric" else "F"
+    wind_unit = "km/h" if units == "metric" else "mph"
+
+    if pretty:
+        lines = [f"Weather for {name}:"]
+        lines.append(f"- Temperature: {temp:.1f} {temp_unit}")
+        lines.append(f"- Windspeed: {wind:.1f} {wind_unit}")
+        # include additional fields if available
+        if "winddirection" in weather:
+            lines.append(f"- Wind direction: {int(weather['winddirection'])} deg")
+        if "is_day" in weather:
+            lines.append(f"- Daytime: {'Yes' if weather['is_day'] == 1 else 'No'}")
+        return "\n".join(lines) + "\n"
+
+    # compact output
     return (
-        f"Weather for {data['name']}, {data['sys'].get('country', '')}:\n"
-        f"  Condition: {weather['main']} - {weather['description']}\n"
-        f"  Temperature: {details['temp']}{unit_temp} (feels like {details['feels_like']}{unit_temp})\n"
-        f"  Humidity: {details['humidity']}%\n"
-        f"  Pressure: {details['pressure']} hPa\n"
-        f"  Wind speed: {wind.get('speed', 'N/A')} {unit_speed}\n"
+        f"Weather for {name}:\n"
+        f"  Temperature: {temp} {temp_unit}\n"
+        f"  Windspeed: {wind} {wind_unit}\n"
     )
 
 
-def get_api_key() -> str:
-    api_key = os.getenv("OPENWEATHER_API_KEY")
-    if api_key:
-        return api_key.strip()
-    return input("Enter OpenWeatherMap API key: ").strip()
+def main():
+    print("🌤 Weather Agent (NO API KEY REQUIRED)")
 
+    parser = argparse.ArgumentParser(description="Weather Agent (Open-Meteo, no API key required)")
+    parser.add_argument("--city", help="City name to query (non-interactive)")
+    parser.add_argument("--units", choices=["metric", "imperial"], default="metric", help="Units: metric (C, km/h) or imperial (F, mph)")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-format the output")
+    args, remaining = parser.parse_known_args()
 
-def print_help() -> None:
-    print("Weather Agent")
-    print("Enter a city name to get current weather.")
-    print("Examples: London, New York, Tokyo")
-    print("Type 'exit' or 'quit' to stop.")
-    print("Set OPENWEATHER_API_KEY in your environment for faster startup.")
-
-
-def main() -> None:
-    api_key = get_api_key()
-    if not api_key:
-        print("API key is required to query OpenWeatherMap.")
+    # Non-interactive single-city mode
+    if args.city:
+        try:
+            lat, lon, name = get_coordinates(args.city)
+            weather = fetch_weather(lat, lon)
+            print(format_weather_output(name, weather, units=args.units, pretty=args.pretty))
+        except Exception as e:
+            print("Error:", e)
         return
 
-    units = "metric"
-    choice = input("Use Fahrenheit? (y/N): ").strip().lower()
-    if choice == "y":
-        units = "imperial"
-
-    print_help()
+    # Interactive mode
     while True:
         city = input("city> ").strip()
-        if not city:
-            continue
-        if city.lower() in {"exit", "quit"}:
+
+        if city.lower() in ["exit", "quit"]:
             print("Goodbye!")
             break
+
         try:
-            weather_data = fetch_weather(city, api_key, units)
-            print(format_weather(weather_data, units))
-        except Exception as exc:
-            print(f"Error: {exc}")
+            lat, lon, name = get_coordinates(city)
+            weather = fetch_weather(lat, lon)
+            print(format_weather_output(name, weather, units=args.units, pretty=args.pretty))
+
+        except Exception as e:
+            print("Error:", e)
 
 
 if __name__ == "__main__":

@@ -16,20 +16,25 @@ python calculator.py
 python test.py
 ```
 
-## Weather agent
+## Weather agent (no API key required)
 
-The weather agent queries OpenWeatherMap for current conditions.
+This project includes a lightweight weather agent that uses the Open-Meteo APIs and does not require an API key.
 
-1. Set your API key in the environment:
-
-```bash
-set OPENWEATHER_API_KEY=your_api_key_here
-```
-
-2. Run the weather agent:
+Run interactively:
 
 ```bash
 python weather_agent.py
+# then type a city name at the prompt, e.g. London
 ```
 
-If you do not set the environment variable, the app will ask for the API key at startup.
+Non-interactive examples:
+
+```bash
+# Basic query (metric units):
+python weather_agent.py --city "London"
+
+# Use imperial units and pretty formatting:
+python weather_agent.py --city "New York" --units imperial --pretty
+```
+
+Interactive mode also accepts `exit` or `quit` to stop.
