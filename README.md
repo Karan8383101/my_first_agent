@@ -1,2 +1,17 @@
 # my_first_agent
-My AI Agent experiments
+
+A simple calculator app example.
+
+## Run the calculator
+
+Use Python to run the app:
+
+```bash
+python calculator.py
+```
+
+## Run the tests
+
+```bash
+python test.py
+```
